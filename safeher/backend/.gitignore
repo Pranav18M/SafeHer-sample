@@ -1,6 +1,11 @@
-cat > .gitignore << 'EOF'
+# Dependencies
 node_modules/
+
+# Environment variables
 .env
+
+# System files
 .DS_Store
+
+# Logs
 *.log
-EOF

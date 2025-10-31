@@ -76,4 +76,4 @@ const sessionSchema = new mongoose.Schema({
 sessionSchema.index({ user: 1, status: 1 });
 sessionSchema.index({ scheduledEndTime: 1, status: 1 });
 
-export default mongoose.model('Session', sessionSchema);
+export default mongoose.models.Session || mongoose.model("Session", SessionSchema);

@@ -1,16 +1,20 @@
+// ===============================================================
+// FILE: public/firebase-messaging-sw.js
+// ===============================================================
+
+// Import Firebase compatibility SDKs
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
 
 // Initialize Firebase in the service worker
-// IMPORTANT: Replace these values with your actual Firebase config
 firebase.initializeApp({
-  apiKey: "your-api-key",
-  authDomain: "your-app.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-app.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "your-app-id",
-  measurementId: "your-measurement-id"
+  apiKey: "AIzaSyAoWYIf75M3VDGr5V0ZYsPSPGdlNyfb8tY",
+  authDomain: "clean-technique-466902-b9.firebaseapp.com",
+  projectId: "clean-technique-466902-b9",
+  storageBucket: "clean-technique-466902-b9.firebasestorage.app",
+  messagingSenderId: "511564354703",
+  appId: "1:511564354703:web:850c44ea04ca8eb7f44cfa",
+  measurementId: "G-9V0NBFHBVG"
 });
 
 // Retrieve Firebase Messaging instance
@@ -19,8 +23,7 @@ const messaging = firebase.messaging();
 // Handle background messages
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw] Received background message:', payload);
-  
-  // Customize notification
+
   const notificationTitle = payload.notification?.title || 'SafeHer Alert';
   const notificationOptions = {
     body: payload.notification?.body || 'You have a new alert',
@@ -31,48 +34,34 @@ messaging.onBackgroundMessage((payload) => {
     requireInteraction: true,
     data: {
       url: payload.data?.url || '/',
-      ...payload.data
+      ...payload.data,
     },
     actions: [
-      {
-        action: 'view',
-        title: 'View Alert'
-      },
-      {
-        action: 'dismiss',
-        title: 'Dismiss'
-      }
-    ]
+      { action: 'view', title: 'View Alert' },
+      { action: 'dismiss', title: 'Dismiss' },
+    ],
   };
 
-  // Show notification
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
 // Handle notification clicks
 self.addEventListener('notificationclick', (event) => {
   console.log('[firebase-messaging-sw] Notification clicked:', event);
-  
+
   event.notification.close();
 
   if (event.action === 'view' || !event.action) {
-    // Open the app
     const urlToOpen = event.notification.data?.url || '/';
-    
+
     event.waitUntil(
-      clients.matchAll({
-        type: 'window',
-        includeUncontrolled: true
-      })
-      .then((clientList) => {
-        // Check if app is already open
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
         for (const client of clientList) {
           if (client.url.includes(urlToOpen) && 'focus' in client) {
             return client.focus();
           }
         }
-        
-        // Open new window if not open
+
         if (clients.openWindow) {
           return clients.openWindow(urlToOpen);
         }

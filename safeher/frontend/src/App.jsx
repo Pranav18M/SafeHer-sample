@@ -1,141 +1,129 @@
-import React from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { SessionProvider } from "./contexts/SessionContext";
+// ================================================================
+// FILE: frontend/src/App.jsx - COMPLETE
+// ================================================================
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SessionProvider } from './contexts/SessionContext';
 
 // Components
-import Login from "./components/Auth/Login";
-import Register from "./Components/Auth/Register";
-import Dashboard from "./Components/Dashboard/Dashboard";
-import Contacts from "./Components/Contacts/Contacts";
-import StartSafety from "./Components/Safety/StartSafety";
-import ActiveSession from "./Components/Safety/ActiveSession";
-import AlertHistory from "./Components/Alerts/AlertHistory";
-import Settings from "./Components/Settings/Settings";
-import Navbar from "./Components/Layout/Navbar";
-import LoadingSpinner from "./Components/Common/LoadingSpinner";
+import Login from './components/Auth/Login';
+import Register from './components/Auth/Register';
+import Dashboard from './components/Dashboard/Dashboard';
+import Contacts from './components/Contacts/Contacts';
+import StartSafety from './components/Safety/StartSafety';
+import ActiveSession from './components/Safety/ActiveSession';
+import AlertHistory from './components/Alerts/AlertHistory';
+import Settings from './components/Settings/Settings';
+import Navbar from './components/Layout/Navbar';
+import LoadingSpinner from './components/Common/LoadingSpinner';
 
-// ✅ Protected Route Wrapper
+// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-
-  if (loading) return <LoadingSpinner />;
-
-  return user ? children : <Navigate to="/login" replace />;
+  
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+  
+  return user ? children : <Navigate to="/login" />;
 };
 
-// ✅ Public Route Wrapper
+// Public Route (redirect to dashboard if logged in)
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
-
-  if (loading) return <LoadingSpinner />;
-
-  return user ? <Navigate to="/dashboard" replace /> : children;
+  
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+  
+  return user ? <Navigate to="/dashboard" /> : children;
 };
 
-// ✅ All App Routes
-const AppRoutes = () => {
+function AppRoutes() {
   const { user } = useAuth();
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Show navbar only when logged in */}
       {user && <Navbar />}
-
+      
       <Routes>
         {/* Public Routes */}
-        <Route
-          path="/login"
+        <Route 
+          path="/login" 
           element={
             <PublicRoute>
               <Login />
             </PublicRoute>
-          }
+          } 
         />
-        <Route
-          path="/register"
+        <Route 
+          path="/register" 
           element={
             <PublicRoute>
               <Register />
             </PublicRoute>
-          }
+          } 
         />
 
         {/* Protected Routes */}
-        <Route
-          path="/dashboard"
+        <Route 
+          path="/dashboard" 
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
-          }
+          } 
         />
-        <Route
-          path="/contacts"
+        <Route 
+          path="/contacts" 
           element={
             <ProtectedRoute>
               <Contacts />
             </ProtectedRoute>
-          }
+          } 
         />
-        <Route
-          path="/start-safety"
+        <Route 
+          path="/start-safety" 
           element={
             <ProtectedRoute>
               <StartSafety />
             </ProtectedRoute>
-          }
+          } 
         />
-        <Route
-          path="/active-session"
+        <Route 
+          path="/active-session" 
           element={
             <ProtectedRoute>
               <ActiveSession />
             </ProtectedRoute>
-          }
+          } 
         />
-        <Route
-          path="/alerts"
+        <Route 
+          path="/alerts" 
           element={
             <ProtectedRoute>
               <AlertHistory />
             </ProtectedRoute>
-          }
+          } 
         />
-        <Route
-          path="/settings"
+        <Route 
+          path="/settings" 
           element={
             <ProtectedRoute>
               <Settings />
             </ProtectedRoute>
-          }
+          } 
         />
 
-        {/* Redirect Root → Dashboard if logged in */}
-        <Route
-          path="/"
-          element={
-            user ? (
-              <Navigate to="/dashboard" replace />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        {/* Catch-all 404 */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Default Route */}
+        <Route path="/" element={<Navigate to="/dashboard" />} />
+        <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
     </div>
   );
-};
+}
 
-// ✅ Main App Component
 function App() {
   return (
     <Router>
