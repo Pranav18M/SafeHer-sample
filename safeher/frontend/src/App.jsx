@@ -1,6 +1,3 @@
-// ================================================================
-// FILE: frontend/src/App.jsx - COMPLETE
-// ================================================================
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -18,105 +15,101 @@ import Settings from './components/Settings/Settings';
 import Navbar from './components/Layout/Navbar';
 import LoadingSpinner from './components/Common/LoadingSpinner';
 
-// Protected Route Component
+// PROTECTED ROUTE ✅
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-  
-  return user ? children : <Navigate to="/login" />;
+  const { currentUser, loading } = useAuth();
+
+  if (loading) return <LoadingSpinner />;
+
+  return currentUser ? children : <Navigate to="/login" />;
 };
 
-// Public Route (redirect to dashboard if logged in)
+// PUBLIC ROUTE ✅
 const PublicRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-  
-  return user ? <Navigate to="/dashboard" /> : children;
+  const { currentUser, loading } = useAuth();
+
+  if (loading) return <LoadingSpinner />;
+
+  return currentUser ? <Navigate to="/dashboard" /> : children;
 };
 
 function AppRoutes() {
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
 
   return (
     <div className="min-h-screen bg-white">
-      {user && <Navbar />}
-      
+      {currentUser && <Navbar />}
+
       <Routes>
         {/* Public Routes */}
-        <Route 
-          path="/login" 
+        <Route
+          path="/login"
           element={
             <PublicRoute>
               <Login />
             </PublicRoute>
-          } 
+          }
         />
-        <Route 
-          path="/register" 
+        <Route
+          path="/register"
           element={
             <PublicRoute>
               <Register />
             </PublicRoute>
-          } 
+          }
         />
 
         {/* Protected Routes */}
-        <Route 
-          path="/dashboard" 
+        <Route
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/contacts" 
+        <Route
+          path="/contacts"
           element={
             <ProtectedRoute>
               <Contacts />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/start-safety" 
+        <Route
+          path="/start-safety"
           element={
             <ProtectedRoute>
               <StartSafety />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/active-session" 
+        <Route
+          path="/active-session"
           element={
             <ProtectedRoute>
               <ActiveSession />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/alerts" 
+        <Route
+          path="/alerts"
           element={
             <ProtectedRoute>
               <AlertHistory />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/settings" 
+        <Route
+          path="/settings"
           element={
             <ProtectedRoute>
               <Settings />
             </ProtectedRoute>
-          } 
+          }
         />
 
-        {/* Default Route */}
+        {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" />} />
         <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
@@ -124,6 +117,7 @@ function AppRoutes() {
   );
 }
 
+// ROOT COMPONENT
 function App() {
   return (
     <Router>

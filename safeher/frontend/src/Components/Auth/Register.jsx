@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Shield, User, Mail, Lock, Phone, AlertCircle, Eye, EyeOff, CheckCircle, Check } from 'lucide-react';
+import { Shield, User, Mail, Lock, Phone, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
-  const { register: registerUser } = useAuth(); // FIXED: Renamed to avoid conflict
+  const authContext = useAuth();
+  
+  // Debug: Check if register function exists
+  console.log('Auth context:', authContext);
+  console.log('Register function exists:', typeof authContext.register === 'function');
   
   const [formData, setFormData] = useState({
     name: '',
@@ -16,197 +20,72 @@ const Register = () => {
   });
   
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [passwordStrength, setPasswordStrength] = useState(0);
-  const [fieldErrors, setFieldErrors] = useState({});
 
-  // Calculate password strength
-  const calculatePasswordStrength = (password) => {
-    let strength = 0;
-    if (password.length >= 8) strength++;
-    if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
-    if (password.match(/[0-9]/)) strength++;
-    if (password.match(/[^a-zA-Z0-9]/)) strength++;
-    return strength;
-  };
-
-  // Validate individual fields
-  const validateField = (name, value) => {
-    let error = '';
-
-    switch (name) {
-      case 'name':
-        if (!value.trim()) {
-          error = 'Name is required';
-        } else if (value.trim().length < 2) {
-          error = 'Name must be at least 2 characters';
-        } else if (value.trim().length > 100) {
-          error = 'Name must be less than 100 characters';
-        }
-        break;
-
-      case 'email':
-        if (!value.trim()) {
-          error = 'Email is required';
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-          error = 'Please enter a valid email address';
-        }
-        break;
-
-      case 'phone':
-        if (!value.trim()) {
-          error = 'Phone number is required';
-        } else {
-          const phoneDigits = value.replace(/\D/g, '');
-          if (phoneDigits.length !== 10) {
-            error = 'Phone number must be exactly 10 digits';
-          }
-        }
-        break;
-
-      case 'password':
-        if (!value) {
-          error = 'Password is required';
-        } else if (value.length < 8) {
-          error = 'Password must be at least 8 characters';
-        } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(value)) {
-          error = 'Password must contain uppercase, lowercase, and number';
-        }
-        break;
-
-      case 'confirmPassword':
-        if (!value) {
-          error = 'Please confirm your password';
-        } else if (value !== formData.password) {
-          error = 'Passwords do not match';
-        }
-        break;
-
-      default:
-        break;
-    }
-
-    return error;
-  };
-
-  // Handle input change
   const handleChange = (e) => {
     const { name, value } = e.target;
-    
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
-
-    // Clear general error
     setError('');
-
-    // Validate field
-    const fieldError = validateField(name, value);
-    setFieldErrors(prev => ({
-      ...prev,
-      [name]: fieldError
-    }));
-
-    // Calculate password strength
-    if (name === 'password') {
-      setPasswordStrength(calculatePasswordStrength(value));
-    }
-
-    // Check confirm password when password changes
-    if (name === 'password' && formData.confirmPassword) {
-      const confirmError = formData.confirmPassword !== value ? 'Passwords do not match' : '';
-      setFieldErrors(prev => ({
-        ...prev,
-        confirmPassword: confirmError
-      }));
-    }
   };
 
-  // Validate entire form
-  const validateForm = () => {
-    const errors = {};
-    
-    Object.keys(formData).forEach(key => {
-      const error = validateField(key, formData[key]);
-      if (error) {
-        errors[key] = error;
-      }
-    });
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    
+    console.log('Form submitted with data:', formData);
 
-    // Validate form
-    if (!validateForm()) {
-      setError('Please fix all errors before submitting');
+    // Basic validation
+    if (!formData.name || !formData.email || !formData.password || !formData.phone) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    if (phoneDigits.length !== 10) {
+      setError('Phone number must be 10 digits');
       return;
     }
 
     setLoading(true);
 
     try {
-      // FIXED: Using registerUser instead of register
-      const result = await registerUser(
+      console.log('Calling register function...');
+      
+      // Call the register function from AuthContext
+      const result = await authContext.register(
         formData.name.trim(),
         formData.email.trim().toLowerCase(),
         formData.password,
-        formData.phone.replace(/\D/g, '')
+        phoneDigits
       );
       
+      console.log('Register result:', result);
+      
       if (result.success) {
-        // Navigate to contacts page to add emergency contacts
+        console.log('Registration successful! Redirecting...');
         navigate('/contacts');
       } else {
         setError(result.error || 'Registration failed. Please try again.');
       }
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
       console.error('Registration error:', err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Get password strength color
-  const getPasswordStrengthColor = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return 'bg-red-500';
-      case 2:
-        return 'bg-yellow-500';
-      case 3:
-        return 'bg-blue-500';
-      case 4:
-        return 'bg-green-500';
-      default:
-        return 'bg-gray-300';
-    }
-  };
-
-  // Get password strength text
-  const getPasswordStrengthText = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return 'Weak';
-      case 2:
-        return 'Fair';
-      case 3:
-        return 'Good';
-      case 4:
-        return 'Strong';
-      default:
-        return '';
     }
   };
 
@@ -234,7 +113,7 @@ const Register = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {/* Name Field */}
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
@@ -248,18 +127,11 @@ const Register = () => {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  className={`input-field pl-11 ${fieldErrors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
+                  className="input-field pl-11"
                   placeholder="Enter your full name"
                   required
-                  autoComplete="name"
                 />
-                {!fieldErrors.name && formData.name.trim().length >= 2 && (
-                  <Check className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
-                )}
               </div>
-              {fieldErrors.name && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.name}</p>
-              )}
             </div>
 
             {/* Email Field */}
@@ -275,18 +147,11 @@ const Register = () => {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className={`input-field pl-11 ${fieldErrors.email ? 'border-red-500 focus:ring-red-500' : ''}`}
+                  className="input-field pl-11"
                   placeholder="your.email@example.com"
                   required
-                  autoComplete="email"
                 />
-                {!fieldErrors.email && formData.email.includes('@') && formData.email.includes('.') && (
-                  <Check className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
-                )}
               </div>
-              {fieldErrors.email && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
-              )}
             </div>
 
             {/* Phone Field */}
@@ -302,22 +167,12 @@ const Register = () => {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  className={`input-field pl-11 ${fieldErrors.phone ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="Enter 10-digit phone number"
+                  className="input-field pl-11"
+                  placeholder="10-digit phone number"
                   required
-                  autoComplete="tel"
                   maxLength="10"
                 />
-                {!fieldErrors.phone && formData.phone.replace(/\D/g, '').length === 10 && (
-                  <Check className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
-                )}
               </div>
-              {fieldErrors.phone && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>
-              )}
-              <p className="mt-1 text-xs text-gray-500">
-                This number will be used for account verification
-              </p>
             </div>
 
             {/* Password Field */}
@@ -333,50 +188,18 @@ const Register = () => {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  className={`input-field pl-11 pr-11 ${fieldErrors.password ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="Create a strong password"
+                  className="input-field pl-11 pr-11"
+                  placeholder="Minimum 8 characters"
                   required
-                  autoComplete="new-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              {fieldErrors.password && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
-              )}
-              
-              {/* Password Strength Indicator */}
-              {formData.password && (
-                <div className="mt-2">
-                  <div className="flex gap-1 mb-1">
-                    {[1, 2, 3, 4].map((level) => (
-                      <div
-                        key={level}
-                        className={`h-1 flex-1 rounded transition-colors ${
-                          level <= passwordStrength ? getPasswordStrengthColor() : 'bg-gray-200'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-600">
-                    Password strength: <span className="font-medium">{getPasswordStrengthText()}</span>
-                  </p>
-                  {passwordStrength < 3 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Use uppercase, lowercase, numbers for a stronger password
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Confirm Password Field */}
@@ -387,58 +210,23 @@ const Register = () => {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  type={showConfirmPassword ? 'text' : 'password'}
+                  type={showPassword ? 'text' : 'password'}
                   id="confirmPassword"
                   name="confirmPassword"
                   value={formData.confirmPassword}
                   onChange={handleChange}
-                  className={`input-field pl-11 pr-11 ${fieldErrors.confirmPassword ? 'border-red-500 focus:ring-red-500' : ''}`}
+                  className="input-field pl-11"
                   placeholder="Re-enter your password"
                   required
-                  autoComplete="new-password"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showConfirmPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
-                </button>
               </div>
-              {fieldErrors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{fieldErrors.confirmPassword}</p>
-              )}
-              {formData.confirmPassword && formData.password === formData.confirmPassword && !fieldErrors.confirmPassword && (
-                <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Passwords match</span>
-                </div>
-              )}
-            </div>
-
-            {/* Terms and Conditions */}
-            <div className="pt-2">
-              <p className="text-xs text-gray-600 leading-relaxed">
-                By creating an account, you agree to SafeHer's{' '}
-                <a href="#" className="text-red-600 hover:text-red-700 underline">
-                  Terms of Service
-                </a>{' '}
-                and{' '}
-                <a href="#" className="text-red-600 hover:text-red-700 underline">
-                  Privacy Policy
-                </a>
-              </p>
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || Object.keys(fieldErrors).some(key => fieldErrors[key])}
-              className="w-full btn-primary py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading}
+              className="w-full btn-primary py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-6"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -465,12 +253,14 @@ const Register = () => {
           </div>
         </div>
 
-        {/* Info Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-500">
-            🔒 Your information is encrypted and secure
-          </p>
-        </div>
+        {/* Debug Info (remove in production) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-4 p-4 bg-gray-100 rounded-lg text-xs">
+            <p><strong>Debug Info:</strong></p>
+            <p>Register function: {typeof authContext.register === 'function' ? '✅ Available' : '❌ Missing'}</p>
+            <p>API URL: {import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}</p>
+          </div>
+        )}
       </div>
     </div>
   );

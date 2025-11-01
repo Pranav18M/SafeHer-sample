@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import connectDB from "./config/db.js";
 import rateLimit from 'express-rate-limit';
 
 // Import routes
@@ -37,9 +38,7 @@ requiredEnvVars.forEach((key) => {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// MIDDLEWARE CONFIGURATION
-
-// Security middleware
+// SECURITY MIDDLEWARE
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
@@ -79,7 +78,6 @@ app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 // ROUTES
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok',
@@ -89,7 +87,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API status endpoint
 app.get('/api/status', (req, res) => {
   res.json({
     success: true,
@@ -105,7 +102,7 @@ app.use('/api/contacts', contactRoutes);
 app.use('/api/session', sessionRoutes);
 app.use('/api/alerts', alertRoutes);
 
-// 404 Error handler
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -129,31 +126,22 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ================================================================
-// DATABASE CONNECTION & SERVER STARTUP
-// ================================================================
-
+// START SERVER
 const startServer = async () => {
   try {
-    console.log('🔄 Connecting to MongoDB...');
+    console.log("🔄 Connecting to MongoDB...");
+    await connectDB();
 
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ MongoDB connection successful');
-
-    // Start the Express server
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });
 
-    // Session expiration check
     setInterval(checkExpiredSessions, 30000);
 
   } catch (error) {
-    console.error('❌ Failed to connect to MongoDB:', error.message);
+    console.error("❌ Failed to start server:", error.message);
     process.exit(1);
   }
 };
 
-// START THE SERVER
 startServer();

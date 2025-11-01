@@ -1,8 +1,9 @@
-// src/firebase.js
+// firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
-// ✅ Load Firebase config from your .env file
+// ✅ Load Firebase config from Vite environment variables
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -12,9 +13,18 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// 🔐 Validate required ENV variables
+Object.entries(firebaseConfig).forEach(([key, value]) => {
+  if (!value) {
+    console.error(`❌ Missing Firebase config for: ${key}`);
+  }
+});
+
 // ✅ Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// ✅ Export Firebase Authentication instance
+// ✅ Export Firebase services
 export const auth = getAuth(app);
+export const db = getFirestore(app);
+
 export default app;
