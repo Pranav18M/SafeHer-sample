@@ -5,7 +5,7 @@ import { Shield, User, Mail, Lock, Phone, AlertCircle, Eye, EyeOff, CheckCircle,
 
 const Register = () => {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const { register: registerUser } = useAuth(); // FIXED: Renamed to avoid conflict
   
   const [formData, setFormData] = useState({
     name: '',
@@ -154,7 +154,8 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const result = await register(
+      // FIXED: Using registerUser instead of register
+      const result = await registerUser(
         formData.name.trim(),
         formData.email.trim().toLowerCase(),
         formData.password,
