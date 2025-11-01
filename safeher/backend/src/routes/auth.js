@@ -139,9 +139,12 @@ router.post('/login', [
       });
     }
 
-    // Update last login time
-    user.lastLogin = new Date();
-    await user.save();
+    // FIXED: Update last login WITHOUT triggering full validation
+    // Use updateOne instead of save() to avoid validation
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { lastLogin: new Date() } }
+    );
 
     // Generate JWT token
     const token = jwt.sign(
@@ -240,18 +243,25 @@ router.put('/update-profile', protect, [
       }
     }
 
-    // Update fields
-    if (name) user.name = name.trim();
-    if (phone) user.phone = phone;
+    // Update fields using updateOne to avoid validation issues
+    const updateData = {};
+    if (name) updateData.name = name.trim();
+    if (phone) updateData.phone = phone;
 
-    await user.save();
+    await User.updateOne(
+      { _id: req.user.id },
+      { $set: updateData }
+    );
 
-    console.log(`✅ Profile updated: ${user.email}`);
+    // Fetch updated user
+    const updatedUser = await User.findById(req.user.id);
+
+    console.log(`✅ Profile updated: ${updatedUser.email}`);
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      user: user.toJSON()
+      user: updatedUser.toJSON()
     });
   } catch (error) {
     console.error('Update profile error:', error);
@@ -310,7 +320,7 @@ router.post('/change-password', protect, [
       });
     }
 
-    // Update password
+    // Update password (this will trigger the hash pre-save hook)
     user.password = newPassword;
     await user.save();
 
@@ -388,9 +398,11 @@ router.delete('/delete-account', protect, [
       });
     }
 
-    // Soft delete - deactivate account
-    user.isActive = false;
-    await user.save();
+    // Soft delete - deactivate account using updateOne
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { isActive: false } }
+    );
 
     console.log(`✅ Account deleted: ${user.email}`);
 

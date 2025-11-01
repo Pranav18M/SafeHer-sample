@@ -1,6 +1,3 @@
-// ================================================================
-// FILE: frontend/src/contexts/AuthContext.jsx - COMPLETE FIXED
-// ================================================================
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 
@@ -56,11 +53,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // REGISTER FUNCTION - THIS IS CRITICAL
+  // REGISTER FUNCTION
   const register = async (name, email, password, phone) => {
     try {
       setError(null);
-      console.log('Registering user:', { name, email, phone }); // Debug log
+      console.log('Registering user:', { name, email, phone });
       
       const response = await axios.post('/auth/register', {
         name,
@@ -69,7 +66,7 @@ export const AuthProvider = ({ children }) => {
         phone
       });
 
-      console.log('Registration response:', response.data); // Debug log
+      console.log('Registration response:', response.data);
 
       const { token, user } = response.data;
       localStorage.setItem('token', token);
@@ -78,32 +75,66 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true };
     } catch (error) {
-      console.error('Registration error:', error); // Debug log
+      console.error('Registration error:', error.response || error);
       const message = error.response?.data?.message || 'Registration failed';
       setError(message);
       return { success: false, error: message };
     }
   };
 
-  // LOGIN FUNCTION
+  // LOGIN FUNCTION - FIXED
   const login = async (email, password) => {
     try {
       setError(null);
-      console.log('Logging in user:', email); // Debug log
+      console.log('Login attempt for:', email);
+      console.log('API URL:', API_URL);
       
-      const response = await axios.post('/auth/login', { email, password });
+      // Make sure email is lowercase and trimmed
+      const loginData = {
+        email: email.toLowerCase().trim(),
+        password: password
+      };
+      
+      console.log('Sending login request to:', `${API_URL}/auth/login`);
+      
+      const response = await axios.post('/auth/login', loginData);
 
-      console.log('Login response:', response.data); // Debug log
+      console.log('Login response:', response.data);
 
       const { token, user } = response.data;
+      
+      // Save token
       localStorage.setItem('token', token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
       
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error); // Debug log
-      const message = error.response?.data?.message || 'Login failed';
+      console.error('Login error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      let message = 'Login failed';
+      
+      if (error.response) {
+        // Server responded with error
+        if (error.response.status === 400) {
+          message = error.response.data?.message || 'Invalid email or password format';
+        } else if (error.response.status === 401) {
+          message = 'Invalid email or password';
+        } else {
+          message = error.response.data?.message || 'Login failed';
+        }
+      } else if (error.request) {
+        // Request made but no response
+        message = 'Cannot connect to server. Please check if backend is running.';
+      } else {
+        // Something else happened
+        message = error.message || 'An unexpected error occurred';
+      }
+      
       setError(message);
       return { success: false, error: message };
     }
@@ -125,7 +156,7 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     error,
-    register, 
+    register,
     login,
     logout,
     updateUser,
