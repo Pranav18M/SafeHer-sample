@@ -17,28 +17,29 @@ import LoadingSpinner from './components/Common/LoadingSpinner';
 
 // PROTECTED ROUTE ✅
 const ProtectedRoute = ({ children }) => {
-  const { currentUser, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
 
-  return currentUser ? children : <Navigate to="/login" />;
+  return user ? children : <Navigate to="/login" />;
 };
 
 // PUBLIC ROUTE ✅
 const PublicRoute = ({ children }) => {
-  const { currentUser, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) return <LoadingSpinner />;
 
-  return currentUser ? <Navigate to="/dashboard" /> : children;
+  return user ? <Navigate to="/dashboard" /> : children;
 };
 
 function AppRoutes() {
-  const { currentUser } = useAuth();
+  const { user } = useAuth();
 
   return (
     <div className="min-h-screen bg-white">
-      {currentUser && <Navbar />}
+      {user && <Navbar />}
+
 
       <Routes>
         {/* Public Routes */}

@@ -100,10 +100,11 @@ const StartSafety = () => {
 
     const result = await startSession(formData);
 
-    if (result.success) {
+    // ✅ Prevent TypeError crash if result is undefined
+    if (result && result.success) {
       navigate('/active-session');
     } else {
-      setError(result.error || 'Failed to start session');
+      setError(result?.error || 'Failed to start session');
       setLoading(false);
     }
   };

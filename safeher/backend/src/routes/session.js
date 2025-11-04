@@ -3,9 +3,8 @@ import mongoose from "mongoose";
 
 const router = express.Router();
 
-// ================================================================
 // Mongoose Model for Session
-// ================================================================
+
 const sessionSchema = new mongoose.Schema(
   {
     userId: {
