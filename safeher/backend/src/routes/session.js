@@ -1,32 +1,72 @@
+// backend/routes/session.js
 import express from "express";
 import mongoose from "mongoose";
 
 const router = express.Router();
 
-// Mongoose Model for Session
+// -----------------------------
+// Session Schema (updated)
+// -----------------------------
+const locationSchema = new mongoose.Schema(
+  {
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    accuracy: { type: Number, default: null },
+    timestamp: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
+
+const sosContactSchema = new mongoose.Schema(
+  {
+    name: { type: String, default: null },
+    phone: { type: String, required: true }
+  },
+  { _id: false }
+);
 
 const sessionSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: true
     },
+
+    // location is now an object with lat/lon/accuracy/timestamp
     location: {
-      type: String,
-      required: true,
+      type: locationSchema,
+      required: true
     },
+
+    // Vehicle details (optional)
+    vehicleType: {
+      type: String,
+      enum: ["car", "bike", "auto", "cab", "walk", "other"],
+      default: "other"
+    },
+    vehicleNumber: {
+      type: String,
+      default: ""
+    },
+
+    // SOS contacts — array of small objects {name, phone}
+    sosContacts: {
+      type: [sosContactSchema],
+      default: []
+    },
+
     active: {
       type: Boolean,
-      default: true,
+      default: true
     },
     startedAt: {
       type: Date,
-      default: Date.now,
+      default: Date.now
     },
     endedAt: {
-      type: Date,
-    },
+      type: Date
+    }
   },
   { timestamps: true }
 );
@@ -38,12 +78,12 @@ const Session = mongoose.model("Session", sessionSchema);
 // ================================================================
 router.get("/", async (req, res) => {
   try {
-    const sessions = await Session.find();
+    const sessions = await Session.find().sort({ createdAt: -1 });
     res.json({
       success: true,
       message: "Session routes working properly ✅",
       count: sessions.length,
-      sessions,
+      sessions
     });
   } catch (err) {
     console.error("Error fetching sessions:", err);
@@ -52,36 +92,57 @@ router.get("/", async (req, res) => {
 });
 
 // ================================================================
-// ROUTE: POST /api/session/create → Create new active session
+// ROUTE: POST /api/session/start → Start new active session
+// Expect body:
+// {
+//   userId: "...",
+//   location: { latitude, longitude, accuracy?, timestamp? },
+//   vehicleType?: "car" | "bike" | ...,
+//   vehicleNumber?: "...",
+//   sosContacts?: [{ name?, phone }, ...]
+// }
 // ================================================================
-router.post("/create", async (req, res) => {
+router.post("/start", async (req, res) => {
   try {
-    const { userId, location } = req.body;
+    const { userId, location, vehicleType, vehicleNumber, sosContacts } = req.body;
 
-    if (!userId || !location) {
-      return res.status(400).json({ success: false, message: "Missing userId or location" });
+    // Basic validation
+    if (!userId || !location || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+      return res.status(400).json({
+        success: false,
+        message: "Missing or invalid fields. Required: userId and location.latitude/longitude"
+      });
     }
 
     const session = new Session({
       userId,
-      location,
+      location: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracy ?? null,
+        timestamp: location.timestamp ? new Date(location.timestamp) : new Date()
+      },
+      vehicleType: vehicleType ?? "other",
+      vehicleNumber: vehicleNumber ?? "",
+      sosContacts: Array.isArray(sosContacts) ? sosContacts.map(c => ({ name: c.name ?? null, phone: c.phone })) : []
     });
 
     await session.save();
 
     return res.status(201).json({
       success: true,
-      message: "Session created successfully",
-      session,
+      message: "Session started successfully",
+      session
     });
   } catch (err) {
-    console.error("Error creating session:", err);
-    res.status(500).json({ success: false, message: "Server error while creating session" });
+    console.error("Error starting session:", err);
+    res.status(500).json({ success: false, message: "Server error while starting session" });
   }
 });
 
 // ================================================================
 // ROUTE: POST /api/session/end → End a session
+// Expect body: { sessionId }
 // ================================================================
 router.post("/end", async (req, res) => {
   try {
@@ -108,7 +169,7 @@ router.post("/end", async (req, res) => {
     return res.json({
       success: true,
       message: "Session ended successfully",
-      session,
+      session
     });
   } catch (err) {
     console.error("Error ending session:", err);
@@ -128,7 +189,7 @@ router.get("/:userId", async (req, res) => {
     res.json({
       success: true,
       count: sessions.length,
-      sessions,
+      sessions
     });
   } catch (err) {
     console.error("Error fetching user sessions:", err);

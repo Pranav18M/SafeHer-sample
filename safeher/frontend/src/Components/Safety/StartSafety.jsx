@@ -7,13 +7,13 @@ import axios from 'axios';
 const StartSafety = () => {
   const navigate = useNavigate();
   const { startSession } = useSession();
-  
+
   const [contacts, setContacts] = useState([]);
   const [formData, setFormData] = useState({
     vehicleType: 'cab',
     vehicleNumber: '',
     driverNotes: '',
-    durationMinutes: 30
+    durationMinutes: 30,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,10 +26,10 @@ const StartSafety = () => {
 
   const checkContacts = async () => {
     try {
-      const response = await axios.get('/contacts');
+      const response = await axios.get('/api/contacts');
       const contactList = response.data.contacts || [];
       setContacts(contactList);
-      
+
       if (contactList.length === 0) {
         setError('Please add at least one emergency contact before starting a session');
       }
@@ -40,20 +40,18 @@ const StartSafety = () => {
 
   const checkPermissions = async () => {
     try {
-      // Check location permission
-      const position = await new Promise((resolve, reject) => {
+      // Location permission
+      await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject);
       });
 
-      // Check microphone permission
+      // Microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track) => track.stop());
 
-      // Check notification permission
-      if ('Notification' in window) {
-        if (Notification.permission === 'default') {
-          await Notification.requestPermission();
-        }
+      // Notification permission
+      if ('Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission();
       }
 
       setPermissionsGranted(true);
@@ -63,12 +61,25 @@ const StartSafety = () => {
     }
   };
 
+  // ✅ Helper: Get location data
+  const getLocation = () =>
+    new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) =>
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }),
+        (error) => reject(error)
+      );
+    });
+
   const vehicleTypes = [
     { value: 'car', label: 'Car', icon: Car, color: 'blue' },
     { value: 'bike', label: 'Bike', icon: Bike, color: 'green' },
     { value: 'auto', label: 'Auto', icon: Bus, color: 'yellow' },
     { value: 'cab', label: 'Cab', icon: Cab, color: 'purple' },
-    { value: 'walk', label: 'Walk', icon: Footprints, color: 'gray' }
+    { value: 'walk', label: 'Walk', icon: Footprints, color: 'gray' },
   ];
 
   const durationOptions = [
@@ -78,12 +89,13 @@ const StartSafety = () => {
     { value: 45, label: '45 minutes' },
     { value: 60, label: '1 hour' },
     { value: 90, label: '1.5 hours' },
-    { value: 120, label: '2 hours' }
+    { value: 120, label: '2 hours' },
   ];
 
+  // ✅ Submission Handler - Updated for location & contacts
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (contacts.length === 0) {
       setError('Please add at least one emergency contact first');
       return;
@@ -98,13 +110,27 @@ const StartSafety = () => {
     setLoading(true);
     setError('');
 
-    const result = await startSession(formData);
+    try {
+      const location = await getLocation();
+      const sessionData = {
+        ...formData,
+        sosContacts: contacts.map((c) => ({ name: c.name, phone: c.phone })),
+        location, // ✅ include required location
+      };
 
-    // ✅ Prevent TypeError crash if result is undefined
-    if (result && result.success) {
-      navigate('/active-session');
-    } else {
-      setError(result?.error || 'Failed to start session');
+      console.log('🚀 Final sessionData:', sessionData);
+
+      const result = await startSession(sessionData);
+
+      if (result?.success) {
+        navigate('/active-session');
+      } else {
+        setError(result?.error || 'Failed to start session');
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('❌ Error in session creation:', err);
+      setError('Unable to start session. Location may not be accessible.');
       setLoading(false);
     }
   };
@@ -164,12 +190,20 @@ const StartSafety = () => {
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <vehicle.icon className={`w-8 h-8 mx-auto mb-2 ${
-                    formData.vehicleType === vehicle.value ? 'text-red-600' : 'text-gray-400'
-                  }`} />
-                  <p className={`text-sm font-medium ${
-                    formData.vehicleType === vehicle.value ? 'text-red-600' : 'text-gray-600'
-                  }`}>
+                  <vehicle.icon
+                    className={`w-8 h-8 mx-auto mb-2 ${
+                      formData.vehicleType === vehicle.value
+                        ? 'text-red-600'
+                        : 'text-gray-400'
+                    }`}
+                  />
+                  <p
+                    className={`text-sm font-medium ${
+                      formData.vehicleType === vehicle.value
+                        ? 'text-red-600'
+                        : 'text-gray-600'
+                    }`}
+                  >
                     {vehicle.label}
                   </p>
                 </button>
@@ -240,7 +274,8 @@ const StartSafety = () => {
           <div className="card bg-blue-50 border-blue-100">
             <h2 className="text-xl font-bold text-gray-900 mb-3">Emergency Contacts</h2>
             <p className="text-sm text-gray-700 mb-3">
-              Alerts will be sent to {contacts.length} contact{contacts.length !== 1 ? 's' : ''}:
+              Alerts will be sent to {contacts.length} contact
+              {contacts.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-2">
               {contacts.slice(0, 3).map((contact) => (
@@ -253,7 +288,9 @@ const StartSafety = () => {
                 </div>
               ))}
               {contacts.length > 3 && (
-                <p className="text-sm text-gray-600">...and {contacts.length - 3} more</p>
+                <p className="text-sm text-gray-600">
+                  ...and {contacts.length - 3} more
+                </p>
               )}
             </div>
           </div>
@@ -262,39 +299,31 @@ const StartSafety = () => {
           <div className="card">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Required Permissions</h2>
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                  permissionsGranted ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {permissionsGranted ? '✓' : '?'}
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Location Access</p>
-                  <p className="text-sm text-gray-600">Required for live tracking</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                  permissionsGranted ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {permissionsGranted ? '✓' : '?'}
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Microphone Access</p>
-                  <p className="text-sm text-gray-600">Required for voice and sound detection</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                  permissionsGranted ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {permissionsGranted ? '✓' : '?'}
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Notifications</p>
-                  <p className="text-sm text-gray-600">Required for timer warnings</p>
-                </div>
-              </div>
+              {['Location Access', 'Microphone Access', 'Notifications'].map(
+                (perm, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <div
+                      className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                        permissionsGranted
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-gray-100 text-gray-400'
+                      }`}
+                    >
+                      {permissionsGranted ? '✓' : '?'}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{perm}</p>
+                      <p className="text-sm text-gray-600">
+                        {perm === 'Location Access' && 'Required for live tracking'}
+                        {perm === 'Microphone Access' &&
+                          'Required for voice and sound detection'}
+                        {perm === 'Notifications' &&
+                          'Required for timer warnings'}
+                      </p>
+                    </div>
+                  </div>
+                )
+              )}
               {!permissionsGranted && (
                 <button
                   type="button"
@@ -320,7 +349,10 @@ const StartSafety = () => {
           {/* Safety Note */}
           <div className="text-center text-sm text-gray-600">
             <p className="mb-2">🔒 Your safety is our priority</p>
-            <p>Voice detection, sound monitoring, and GPS tracking will be active during your session</p>
+            <p>
+              Voice detection, sound monitoring, and GPS tracking will be active during your
+              session
+            </p>
           </div>
         </form>
       </div>

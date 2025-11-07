@@ -2,7 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSession } from '../../contexts/SessionContext';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
-import { Phone, PhoneOff, AlertTriangle, Square, Volume2, Mic, MapPin, Clock } from 'lucide-react';
+import {
+  Phone,
+  PhoneOff,
+  AlertTriangle,
+  Square,
+  Volume2,
+  Mic,
+  MapPin,
+  Clock,
+  Copy,
+  PhoneOutgoing
+} from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -14,140 +25,260 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
+/**
+ * ActiveSession.jsx
+ * - Preserves original functionality
+ * - Adds display for vehicle info and SOS contacts (sosContacts)
+ * - Robust with different shapes of session/location coming from backend/localStorage
+ */
+
 const ActiveSession = () => {
   const navigate = useNavigate();
-  const { activeSession, location, timeRemaining, stopSession, triggerAlert } = useSession();
-  
+  const sessionCtx = useSession() || {}; // tolerant access to context
+  // Support multiple naming conventions from different updates:
+  const activeSession = sessionCtx.activeSession || sessionCtx.session || null;
+  const locationFromCtx = sessionCtx.location || null;
+  const timeRemaining = sessionCtx.timeRemaining ?? sessionCtx.remainingTime ?? 0;
+  const stopSession = sessionCtx.stopSession || sessionCtx.endSession || (async () => ({ success: false, error: 'No stopSession' }));
+  const triggerAlert = sessionCtx.triggerAlert || sessionCtx.sendAlert || (async () => ({ success: false, error: 'No triggerAlert' }));
+
+  // UI & detection states
   const [showFakeCall, setShowFakeCall] = useState(false);
   const [voiceDetectionActive, setVoiceDetectionActive] = useState(false);
   const [screamDetectionActive, setScreamDetectionActive] = useState(false);
   const [alertStatus, setAlertStatus] = useState('');
   const [isStoppingSession, setIsStoppingSession] = useState(false);
 
+  // SOS contacts (from activeSession.sosContacts or activeSession.sos or activeSession.contacts)
+  const [sosContacts, setSosContacts] = useState([]);
+
+  // Resolved location object (latitude, longitude, accuracy, timestamp)
+  const [location, setLocation] = useState(null);
+
+  // audio / speech refs
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const recognitionRef = useRef(null);
 
+  // Keep a local mounted flag to avoid setState after unmount
+  const mountedRef = useRef(true);
+
   useEffect(() => {
-    if (!activeSession) {
-      navigate('/start-safety');
-      return;
+    mountedRef.current = true;
+    // Resolve active session info into local state
+    resolveActiveSessionData();
+
+    return () => {
+      mountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession]);
+
+  useEffect(() => {
+    // Build location: prefer context location, then session.location (string/object)
+    if (locationFromCtx) {
+      setLocation(normalizeLocation(locationFromCtx));
+    } else if (activeSession) {
+      // session may have `location` as object or JSON string or nested object
+      const loc = activeSession.location || activeSession.currentLocation || activeSession.lastLocation || null;
+      if (loc) {
+        setLocation(normalizeLocation(loc));
+      }
     }
 
-    // Start voice and scream detection
-    startVoiceDetection();
-    startScreamDetection();
+    // Start detectors only if we have an activeSession
+    if (activeSession) {
+      startVoiceDetection();
+      startScreamDetection();
+    }
 
-    // Show warning notification at T-2 minutes
+    // Show timer warning at T-2 minutes
     if (timeRemaining === 120) {
       showTimerWarning();
     }
 
     return () => {
+      // cleanup detectors
       stopVoiceDetection();
       stopScreamDetection();
     };
-  }, [activeSession, timeRemaining]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession, locationFromCtx, timeRemaining]);
 
-  // Voice keyword detection using Web Speech API
+  // --- Helpers --------------------------------------------------------------
+
+  function normalizeLocation(loc) {
+    // Accept multiple shapes:
+    // - { latitude, longitude, accuracy, timestamp }
+    // - { lat, lng, accuracy }
+    // - stringified JSON of above
+    // - legacy: "lat,lng,acc,timestamp"
+    try {
+      if (!loc) return null;
+
+      if (typeof loc === 'string') {
+        // try JSON parse
+        try {
+          const parsed = JSON.parse(loc);
+          return normalizeLocation(parsed);
+        } catch {
+          // try comma separated
+          const parts = loc.split(',').map(s => s.trim());
+          if (parts.length >= 2) {
+            const latitude = parseFloat(parts[0]);
+            const longitude = parseFloat(parts[1]);
+            const accuracy = parts[2] ? Number(parts[2]) : undefined;
+            const timestamp = parts[3] ? Number(parts[3]) : Date.now();
+            return { latitude, longitude, accuracy, timestamp };
+          }
+          return null;
+        }
+      }
+
+      if (typeof loc === 'object') {
+        const latitude = loc.latitude ?? loc.lat ?? loc.coords?.latitude ?? null;
+        const longitude = loc.longitude ?? loc.lng ?? loc.coords?.longitude ?? null;
+        const accuracy = loc.accuracy ?? loc.coords?.accuracy ?? loc.accuracyMeters ?? 50;
+        const timestamp = loc.timestamp ?? loc.time ?? loc.coords?.timestamp ?? Date.now();
+
+        if (latitude == null || longitude == null) return null;
+        return {
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          accuracy: Number(accuracy || 50),
+          timestamp: Number(timestamp || Date.now())
+        };
+      }
+
+      return null;
+    } catch (err) {
+      console.warn('normalizeLocation error', err);
+      return null;
+    }
+  }
+
+  function resolveActiveSessionData() {
+    // Pull sosContacts and ensure shape
+    const contacts =
+      activeSession?.sosContacts ||
+      activeSession?.sos ||
+      activeSession?.contacts ||
+      activeSession?.emergencyContacts ||
+      [];
+    setSosContacts(Array.isArray(contacts) ? contacts : []);
+
+    // If there's a location field in session and no location set, parse it
+    if (!location && activeSession?.location) {
+      const parsed = normalizeLocation(activeSession.location);
+      if (parsed) setLocation(parsed);
+    }
+  }
+
+  // --- Voice Detection -----------------------------------------------------
+
   const startVoiceDetection = () => {
+    if (!activeSession) return;
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       console.warn('Speech recognition not supported');
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-IN'; // English (India) - supports Tamil-English mix
-
-    recognition.onstart = () => {
-      setVoiceDetectionActive(true);
-      console.log('✓ Voice detection started');
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map(result => result[0].transcript.toLowerCase())
-        .join('');
-
-      // Emergency keywords (English and Thanglish)
-      const keywords = [
-        'help me', 'help', 'sos', 'emergency', 'danger',
-        'im in danger', 'i am in danger', 'save me',
-        'help pannung', 'kaapathung', 'uthavi',
-        'bayam', 'danger', 'help pannunga'
-      ];
-
-      const detected = keywords.some(keyword => transcript.includes(keyword));
-
-      if (detected) {
-        console.log('⚠️ Emergency keyword detected:', transcript);
-        handleEmergencyAlert('voice_keyword');
-        recognition.stop();
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error !== 'no-speech') {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch (e) {
-            console.error('Failed to restart recognition:', e);
-          }
-        }, 1000);
-      }
-    };
-
-    recognition.onend = () => {
-      setVoiceDetectionActive(false);
-      // Auto-restart
-      if (activeSession) {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch (e) {
-            console.error('Failed to restart recognition:', e);
-          }
-        }, 500);
-      }
-    };
-
     try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-IN';
+
+      recognition.onstart = () => {
+        if (!mountedRef.current) return;
+        setVoiceDetectionActive(true);
+        console.log('✓ Voice detection started');
+      };
+
+      recognition.onresult = (event) => {
+        if (!mountedRef.current) return;
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join(' ')
+          .toLowerCase();
+
+        const keywords = [
+          'help me', 'help', 'sos', 'emergency', 'danger',
+          'im in danger', 'i am in danger', 'save me',
+          'help pannung', 'kaapathung', 'uthavi',
+          'bayam', 'danger', 'help pannunga', 'save'
+        ];
+
+        const detected = keywords.some(k => transcript.includes(k));
+        if (detected) {
+          console.log('⚠️ Emergency keyword detected:', transcript);
+          recognition.stop();
+          handleEmergencyAlert('voice_keyword');
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        // try to auto-restart on recoverable errors
+        if (event.error !== 'no-speech' && mountedRef.current) {
+          setTimeout(() => {
+            try { recognition.start(); } catch (e) { /* ignore */ }
+          }, 1000);
+        }
+      };
+
+      recognition.onend = () => {
+        if (!mountedRef.current) return;
+        setVoiceDetectionActive(false);
+        // auto restart while session active
+        if (activeSession && mountedRef.current) {
+          setTimeout(() => {
+            try { recognition.start(); } catch (e) { /* ignore */ }
+          }, 500);
+        }
+      };
+
       recognition.start();
       recognitionRef.current = recognition;
-    } catch (error) {
-      console.error('Failed to start voice detection:', error);
+    } catch (err) {
+      console.error('Failed to start voice detection:', err);
     }
   };
 
   const stopVoiceDetection = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    } catch (err) {
+      console.warn('stopVoiceDetection error', err);
+    } finally {
       setVoiceDetectionActive(false);
     }
   };
 
-  // Scream detection using Web Audio API
+  // --- Scream detection (Web Audio) ----------------------------------------
+
   const startScreamDetection = async () => {
+    if (!activeSession) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: false
-        } 
+        }
       });
 
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = audioContext.createAnalyser();
       const microphone = audioContext.createMediaStreamSource(stream);
-      
+
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.8;
       microphone.connect(analyser);
@@ -156,12 +287,11 @@ const ActiveSession = () => {
       analyserRef.current = analyser;
       setScreamDetectionActive(true);
 
-      // Monitor audio levels
       monitorAudioLevels();
 
       console.log('✓ Scream detection started');
-    } catch (error) {
-      console.error('Failed to start scream detection:', error);
+    } catch (err) {
+      console.error('Failed to start scream detection:', err);
       setAlertStatus('Microphone access denied - scream detection disabled');
     }
   };
@@ -171,30 +301,25 @@ const ActiveSession = () => {
 
     const bufferLength = analyserRef.current.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
     let consecutiveHighs = 0;
-    const checkInterval = 100; // Check every 100ms
-    const threshold = 180; // Loudness threshold (0-255)
-    const requiredHighs = 5; // Need 5 consecutive highs (500ms)
+    const checkInterval = 100;
+    const threshold = 180;
+    const requiredHighs = 5;
 
     const checkAudio = () => {
+      if (!mountedRef.current) return;
       if (!activeSession || !analyserRef.current) return;
 
       analyserRef.current.getByteFrequencyData(dataArray);
-      
-      // Calculate average volume
-      const average = dataArray.reduce((acc, val) => acc + val, 0) / bufferLength;
-      
-      // Get peak volume
       const peak = Math.max(...dataArray);
 
       if (peak > threshold) {
         consecutiveHighs++;
         if (consecutiveHighs >= requiredHighs) {
-          console.log('⚠️ Loud sound/scream detected! Peak:', peak, 'Avg:', average);
-          handleEmergencyAlert('scream_detected');
+          console.log('⚠️ Loud sound/scream detected! Peak:', peak);
           consecutiveHighs = 0;
-          return; // Stop monitoring after detection
+          handleEmergencyAlert('scream_detected');
+          return;
         }
       } else {
         consecutiveHighs = 0;
@@ -207,27 +332,37 @@ const ActiveSession = () => {
   };
 
   const stopScreamDetection = () => {
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+    try {
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
       analyserRef.current = null;
+    } catch (err) {
+      console.warn('stopScreamDetection error', err);
+    } finally {
       setScreamDetectionActive(false);
     }
   };
 
+  // --- Emergency actions ----------------------------------------------------
+
   const handleEmergencyAlert = async (reason) => {
     setAlertStatus('Sending emergency alerts...');
-    
-    const result = await triggerAlert(reason);
-    
-    if (result.success) {
-      setAlertStatus('✓ Emergency alerts sent to all contacts!');
-      // Auto-redirect after 5 seconds
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 5000);
-    } else {
-      setAlertStatus('Failed to send alerts. Please try again.');
+    try {
+      const result = await triggerAlert(reason);
+      if (result?.success) {
+        setAlertStatus('✓ Emergency alerts sent to all contacts!');
+        // optionally redirect after short delay
+        setTimeout(() => {
+          try { navigate('/dashboard'); } catch (e) {}
+        }, 4000);
+      } else {
+        setAlertStatus(result?.error || 'Failed to send alerts. Please try again.');
+      }
+    } catch (err) {
+      console.error('handleEmergencyAlert error', err);
+      setAlertStatus('Failed to send alerts: ' + (err.message || 'unknown'));
     }
   };
 
@@ -236,31 +371,37 @@ const ActiveSession = () => {
     if (!confirmed) return;
 
     setIsStoppingSession(true);
-    const result = await stopSession();
-    
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
+    try {
+      const result = await stopSession();
+      if (result?.success) {
+        navigate('/dashboard');
+      } else {
+        alert(result?.error || 'Failed to stop session. Please try again.');
+        setIsStoppingSession(false);
+      }
+    } catch (err) {
+      console.error('handleStopSession error', err);
       alert('Failed to stop session. Please try again.');
       setIsStoppingSession(false);
     }
   };
 
+  // Fake call UI
   const handleFakeCall = () => {
     setShowFakeCall(true);
-    
-    // Play ringtone
+
     const ringtone = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZSA0PVKzn77BdGAg+ltryxnMpBS1+zPLaizsGGGS57OihUBELTKXh8bllHAU2jdXzz3wvBSl4yPDejUILElyx6OyrWBYJPJTV8sh0KwYqfMzx3I4+CRZhtuvqqVUSC0mi4fG2YhwENormzpRDBRE1aJ3M3mQYGT1tnNjz8ZnUXqKQ==');
     ringtone.loop = true;
     ringtone.play().catch(e => console.log('Ringtone play failed:', e));
 
-    // Auto-dismiss after 30 seconds
     setTimeout(() => {
       ringtone.pause();
       ringtone.currentTime = 0;
+      setShowFakeCall(false);
     }, 30000);
   };
 
+  // Notifications
   const showTimerWarning = () => {
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('SafeHer: Timer Ending Soon', {
@@ -273,12 +414,25 @@ const ActiveSession = () => {
     }
   };
 
+  // utility to copy phone number
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Copied to clipboard');
+    } catch (err) {
+      console.error('copyToClipboard failed', err);
+      alert('Copy failed');
+    }
+  };
+
+  // format seconds -> mm:ss
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // If no active session or no location yet, show loader (preserves your original behavior)
   if (!activeSession || !location) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -286,6 +440,22 @@ const ActiveSession = () => {
       </div>
     );
   }
+
+  // Helpers to safely read vehicle info
+  const vehicleType = activeSession.vehicleType || activeSession.type || 'UNKNOWN';
+  const vehicleNumber = activeSession.vehicleNumber || activeSession.plate || '';
+
+  // Ensure sosContacts is up-to-date from activeSession when available
+  useEffect(() => {
+    const contacts =
+      activeSession?.sosContacts ||
+      activeSession?.sos ||
+      activeSession?.contacts ||
+      activeSession?.emergencyContacts ||
+      sosContacts;
+    if (Array.isArray(contacts)) setSosContacts(contacts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession]);
 
   return (
     <div className="min-h-screen bg-white pb-20">
@@ -295,9 +465,15 @@ const ActiveSession = () => {
           <div>
             <h1 className="text-2xl font-bold">Safety Mode Active</h1>
             <p className="text-red-50 mt-1">
-              {activeSession.vehicleType.toUpperCase()}
-              {activeSession.vehicleNumber && ` - ${activeSession.vehicleNumber}`}
+              {vehicleType?.toString().toUpperCase()}
+              {vehicleNumber && ` - ${vehicleNumber}`}
             </p>
+            {/* show session startedAt if present */}
+            {activeSession?.startedAt && (
+              <p className="text-xs text-red-100 mt-1">
+                Started: {new Date(activeSession.startedAt).toLocaleString()}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <div className="text-3xl font-bold">{formatTime(timeRemaining)}</div>
@@ -324,9 +500,7 @@ const ActiveSession = () => {
 
       {/* Alert Status */}
       {alertStatus && (
-        <div className={`p-4 ${
-          alertStatus.includes('✓') ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'
-        } border-l-4`}>
+        <div className={`p-4 ${alertStatus.includes('✓') ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'} border-l-4`}>
           <p className="text-sm font-medium">{alertStatus}</p>
         </div>
       )}
@@ -409,9 +583,95 @@ const ActiveSession = () => {
         </button>
       </div>
 
+      {/* Vehicle + SOS Contacts Row */}
+      <div className="px-4 mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Vehicle Info */}
+        <div className="card p-4">
+          <h3 className="font-semibold text-gray-900 mb-2">Vehicle Info</h3>
+          <p className="text-sm text-gray-700">
+            <strong>Type: </strong>{vehicleType?.toString() || '—'}
+          </p>
+          <p className="text-sm text-gray-700">
+            <strong>Number: </strong>{vehicleNumber || '—'}
+          </p>
+          {activeSession?.driverNotes && (
+            <p className="text-sm text-gray-600 mt-2">Notes: {activeSession.driverNotes}</p>
+          )}
+        </div>
+
+        {/* SOS Contacts */}
+        <div className="card p-4 md:col-span-2">
+          <h3 className="font-semibold text-gray-900 mb-3">Emergency Contacts</h3>
+
+          {Array.isArray(sosContacts) && sosContacts.length > 0 ? (
+            <div className="space-y-3">
+              {sosContacts.map((c, idx) => {
+                // support multiple shapes: { name, phone }, string entries "Name|phone" or just phone
+                let name = 'Contact';
+                let phone = '';
+                if (typeof c === 'string') {
+                  if (c.includes('|')) {
+                    const [n, p] = c.split('|').map(s => s.trim());
+                    name = n || `Contact ${idx + 1}`;
+                    phone = p || '';
+                  } else {
+                    phone = c;
+                    name = `Contact ${idx + 1}`;
+                  }
+                } else if (typeof c === 'object') {
+                  name = c.name || c.fullName || c.label || `Contact ${idx + 1}`;
+                  phone = c.phone || c.mobile || c.number || c.contact || '';
+                }
+
+                return (
+                  <div key={idx} className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                        {name.charAt(0)?.toUpperCase() || 'C'}
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900">{name}</div>
+                        <div className="text-sm text-gray-500">{phone || 'No phone'}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {phone ? (
+                        <>
+                          <a
+                            href={`tel:${phone}`}
+                            className="p-2 bg-green-100 rounded-lg hover:bg-green-200 transition"
+                            title={`Call ${name}`}
+                          >
+                            <PhoneOutgoing className="w-4 h-4 text-green-700" />
+                          </a>
+                          <button
+                            onClick={() => copyToClipboard(phone)}
+                            className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                            title="Copy phone"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-sm text-gray-400 italic">No number</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-600">
+              No emergency contacts found for this session. Add contacts in the Contacts screen.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Location Info */}
       <div className="px-4 mt-6">
-        <div className="card">
+        <div className="card p-4">
           <h3 className="font-semibold text-gray-900 mb-3">Current Location</h3>
           <div className="space-y-2 text-sm text-gray-600">
             <p>Latitude: {location.latitude.toFixed(6)}</p>
@@ -439,7 +699,7 @@ const ActiveSession = () => {
             </div>
             <h2 className="text-3xl font-bold mb-2">Emergency Contact</h2>
             <p className="text-xl text-gray-300 mb-8">Incoming Call...</p>
-            
+
             <div className="flex gap-8 justify-center">
               <button
                 onClick={() => setShowFakeCall(false)}

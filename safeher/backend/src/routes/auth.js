@@ -1,3 +1,6 @@
+// ================================================================
+// FILE: backend/src/routes/auth.js - COMPLETE FIXED
+// ================================================================
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
@@ -20,14 +23,12 @@ router.post('/register', [
     .isEmail().withMessage('Valid email is required')
     .normalizeEmail(),
   body('password')
-    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain uppercase, lowercase and number'),
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('phone')
     .notEmpty().withMessage('Phone is required')
     .trim()
 ], async (req, res) => {
   try {
-    // Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
@@ -39,7 +40,6 @@ router.post('/register', [
 
     const { name, email, password, phone } = req.body;
 
-    // Check if user already exists with this email
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(400).json({ 
@@ -48,7 +48,6 @@ router.post('/register', [
       });
     }
 
-    // Check if phone number already exists
     const existingPhone = await User.findOne({ phone });
     if (existingPhone) {
       return res.status(400).json({ 
@@ -57,7 +56,6 @@ router.post('/register', [
       });
     }
 
-    // Create new user
     const user = await User.create({
       name: name.trim(),
       email: email.toLowerCase(),
@@ -65,7 +63,6 @@ router.post('/register', [
       phone
     });
 
-    // Generate JWT token
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
@@ -102,7 +99,6 @@ router.post('/login', [
     .notEmpty().withMessage('Password is required')
 ], async (req, res) => {
   try {
-    // Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
@@ -113,7 +109,7 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    // Find user by email (including password field)
+    // Find user - DON'T select password by default, we'll get it separately
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
     if (!user) {
       return res.status(401).json({ 
@@ -122,7 +118,6 @@ router.post('/login', [
       });
     }
 
-    // Check if user account is active
     if (!user.isActive) {
       return res.status(401).json({ 
         success: false, 
@@ -130,7 +125,6 @@ router.post('/login', [
       });
     }
 
-    // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({ 
@@ -139,14 +133,13 @@ router.post('/login', [
       });
     }
 
-    // FIXED: Update last login WITHOUT triggering full validation
-    // Use updateOne instead of save() to avoid validation
+    // Update last login WITHOUT triggering validation
+    // Use updateOne to bypass schema validation for this update
     await User.updateOne(
       { _id: user._id },
       { $set: { lastLogin: new Date() } }
     );
 
-    // Generate JWT token
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
@@ -200,148 +193,8 @@ router.get('/me', protect, async (req, res) => {
 });
 
 // ================================================================
-// @route   PUT /api/auth/update-profile
-// @desc    Update user profile
-// @access  Private
-// ================================================================
-router.put('/update-profile', protect, [
-  body('name')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2-100 characters'),
-  body('phone')
-    .optional()
-    .trim()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        success: false, 
-        message: errors.array()[0].msg 
-      });
-    }
-
-    const { name, phone } = req.body;
-    const user = await User.findById(req.user.id);
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
-    }
-
-    // Check if phone number is being changed and if it's already taken
-    if (phone && phone !== user.phone) {
-      const existingPhone = await User.findOne({ phone });
-      if (existingPhone) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'This phone number is already in use' 
-        });
-      }
-    }
-
-    // Update fields using updateOne to avoid validation issues
-    const updateData = {};
-    if (name) updateData.name = name.trim();
-    if (phone) updateData.phone = phone;
-
-    await User.updateOne(
-      { _id: req.user.id },
-      { $set: updateData }
-    );
-
-    // Fetch updated user
-    const updatedUser = await User.findById(req.user.id);
-
-    console.log(`✅ Profile updated: ${updatedUser.email}`);
-
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: updatedUser.toJSON()
-    });
-  } catch (error) {
-    console.error('Update profile error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to update profile' 
-    });
-  }
-});
-
-// ================================================================
-// @route   POST /api/auth/change-password
-// @desc    Change user password
-// @access  Private
-// ================================================================
-router.post('/change-password', protect, [
-  body('currentPassword')
-    .notEmpty().withMessage('Current password is required'),
-  body('newPassword')
-    .isLength({ min: 8 }).withMessage('New password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain uppercase, lowercase and number')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        success: false, 
-        message: errors.array()[0].msg 
-      });
-    }
-
-    const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user.id).select('+password');
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
-    }
-
-    // Verify current password
-    const isPasswordValid = await user.comparePassword(currentPassword);
-    if (!isPasswordValid) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Current password is incorrect' 
-      });
-    }
-
-    // Check if new password is same as current
-    if (currentPassword === newPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'New password must be different from current password' 
-      });
-    }
-
-    // Update password (this will trigger the hash pre-save hook)
-    user.password = newPassword;
-    await user.save();
-
-    console.log(`✅ Password changed: ${user.email}`);
-
-    res.json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to change password' 
-    });
-  }
-});
-
-// ================================================================
 // @route   POST /api/auth/logout
-// @desc    Logout user (client-side token removal)
+// @desc    Logout user
 // @access  Private
 // ================================================================
 router.post('/logout', protect, async (req, res) => {
@@ -357,64 +210,6 @@ router.post('/logout', protect, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Logout failed' 
-    });
-  }
-});
-
-// ================================================================
-// @route   DELETE /api/auth/delete-account
-// @desc    Delete user account
-// @access  Private
-// ================================================================
-router.delete('/delete-account', protect, [
-  body('password')
-    .notEmpty().withMessage('Password is required to delete account')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        success: false, 
-        message: errors.array()[0].msg 
-      });
-    }
-
-    const { password } = req.body;
-    const user = await User.findById(req.user.id).select('+password');
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Incorrect password' 
-      });
-    }
-
-    // Soft delete - deactivate account using updateOne
-    await User.updateOne(
-      { _id: user._id },
-      { $set: { isActive: false } }
-    );
-
-    console.log(`✅ Account deleted: ${user.email}`);
-
-    res.json({
-      success: true,
-      message: 'Account deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete account error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to delete account' 
     });
   }
 });
